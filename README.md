@@ -8,13 +8,13 @@ It is recommended to use Anaconda for environment management on the host machine
 - CUDA 11.7
 - Python 3.8
 
-    ## Install the basic dependencies
+    ### Install the basic dependencies
     pip install -r requirements.txt
     
-    ## Build the project
+    ### Build the project
     python setup.py develop
     
-    ## Install the necessary third-party libraries
+    ### Install the necessary third-party libraries
     pip install pycocotools cython_bbox faiss-gpu
 
 ---
