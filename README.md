@@ -56,10 +56,10 @@ The expected directory structure is:
 
 | Model | Dataset / Usage | File Name | Download |
 |---|---|---|---|
-| StrongTrack Ablation | MOT17 half-val evaluation | `strongtrack_ablation.pth.tar` | [Download](YOUR_ABLATION_WEIGHT_URL) |
-| StrongTrack MOT17 | MOT17 test set | `strongtrack_x_mot17.pth.tar` | [Download](YOUR_MOT17_WEIGHT_URL) |
-| StrongTrack MOT20 | MOT20 test set | `strongtrack_x_mot20.pth.tar` | [Download](YOUR_MOT20_WEIGHT_URL) |
-| FastReID | ReID feature extraction | `fastreid.pth` | [Download](YOUR_FASTREID_WEIGHT_URL) |
+| StrongTrack Ablation | MOT17 half-val evaluation | `strongtrack_ablation.pth.tar` | [Download]( https://pan.baidu.com/s/1hDqT1_oVps1bVmAr-HZ8OQ?pwd=yxpy) |
+| StrongTrack MOT17 | MOT17 test set | `strongtrack_x_mot17.pth.tar` | [Download]( https://pan.baidu.com/s/1hDqT1_oVps1bVmAr-HZ8OQ?pwd=yxpy) |
+| StrongTrack MOT20 | MOT20 test set | `strongtrack_x_mot20.pth.tar` | [Download]( https://pan.baidu.com/s/1hDqT1_oVps1bVmAr-HZ8OQ?pwd=yxpy) |
+| FastReID | ReID feature extraction | `fastreid.pth` | [Download]( https://pan.baidu.com/s/1hDqT1_oVps1bVmAr-HZ8OQ?pwd=yxpy) |
 
 > **Note:** Please make sure the downloaded model file names are consistent with the paths used in the tracking commands, such as `pretrained/strongtrack_x_mot17.pth.tar` and `pretrained/fastreid.pth`.
 
