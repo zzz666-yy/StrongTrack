@@ -38,9 +38,36 @@ After organizing the data, run the following script to convert the dataset into 
 
 ---
 
-## 3. Tracking
+---
 
-### 3.1 Evaluation on MOT17 half val
+## 3. Model Zoo
+
+Please download the pretrained models and place them in the `pretrained` folder:
+
+    <StrongTrack_dir>/pretrained
+
+The expected directory structure is:
+
+    pretrained
+    ├── strongtrack_ablation.pth.tar
+    ├── strongtrack_x_mot17.pth.tar
+    ├── strongtrack_x_mot20.pth.tar
+    └── fastreid.pth
+
+| Model | Dataset / Usage | File Name | Download |
+|---|---|---|---|
+| StrongTrack Ablation | MOT17 half-val evaluation | `strongtrack_ablation.pth.tar` | [Download](YOUR_ABLATION_WEIGHT_URL) |
+| StrongTrack MOT17 | MOT17 test set | `strongtrack_x_mot17.pth.tar` | [Download](YOUR_MOT17_WEIGHT_URL) |
+| StrongTrack MOT20 | MOT20 test set | `strongtrack_x_mot20.pth.tar` | [Download](YOUR_MOT20_WEIGHT_URL) |
+| FastReID | ReID feature extraction | `fastreid.pth` | [Download](YOUR_FASTREID_WEIGHT_URL) |
+
+> **Note:** Please make sure the downloaded model file names are consistent with the paths used in the tracking commands, such as `pretrained/strongtrack_x_mot17.pth.tar` and `pretrained/fastreid.pth`.
+
+---
+
+## 4. Tracking
+
+### 4.1 Evaluation on MOT17 half val
 
     python tools/track.py -f exps/example/mot/yolox_x_ablation.py \
         -c pretrained/strongtrack_ablation.pth.tar \
@@ -52,7 +79,7 @@ After organizing the data, run the following script to convert the dataset into 
 
 > **Note:** You need to use TrackEval to evaluate the code and process the generated experimental results, so as to obtain the various indicators mentioned in the text.
 
-### 3.2 Test on MOT17
+### 4.2 Test on MOT17
 
     # Run tracking
     python tools/track.py -f exps/example/mot/yolox_x_mix_det.py \
@@ -66,7 +93,7 @@ After organizing the data, run the following script to convert the dataset into 
     # Run interpolation
     python tools/interpolation.py
 
-### 3.3 Test on MOT20
+### 4.3 Test on MOT20
 
     # Run tracking
     python tools/track.py -f exps/example/mot/yolox_x_mix_mot20_ch.py \
