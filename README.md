@@ -111,7 +111,15 @@ The expected directory structure is:
 > **Note:** For the MOT test set, you need to upload the tracking results to the MOTChallenge official website.
 
 
+## Manuscript Notice
 
+This repository contains the official implementation of **StrongTrack**, which is directly related to the manuscript currently under review at *The Visual Computer*:
+
+**"Adaptive Multi-Object Tracking with Motion Compensation and Occlusion Handling for Visual Computing"**
+
+The code, configuration files, and evaluation scripts are provided to support reproducibility and facilitate evaluation of the proposed method.
+
+If you use this code or find this work helpful, please cite the associated manuscript after publication.
 
 
 
