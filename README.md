@@ -1,15 +1,5 @@
 # StrongTrack
 
-## Manuscript Notice
-
-This repository contains the official implementation of **StrongTrack**, which is directly related to the manuscript currently under review at *The Visual Computer*:
-
-**"Adaptive Multi-Object Tracking with Motion Compensation and Occlusion Handling for Visual Computing"**
-
-The code, configuration files, and evaluation scripts are provided to support reproducibility and facilitate evaluation of the proposed method.
-
-If you use this code or find this work helpful, please cite the associated manuscript after publication.
-
 ## 1. Installation
 
 It is recommended to use Anaconda for environment management on the host machine.
