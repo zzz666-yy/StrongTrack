@@ -13,8 +13,9 @@ chi2inv95 = {
     8: 15.507,
     9: 16.919}
 
-class MAkalmanFilter(object):
+class PAkalmanFilter(object):
     """
+    Power-Adaptive Kalman Filter (PAKF) for tracking bounding boxes in image space.
 
     This filter dynamically adjusts process and observation covariance matrices based on:
     1. Motion Matching Cost: Adapts process noise when motion predictions are inaccurate
@@ -42,12 +43,17 @@ class MAkalmanFilter(object):
             self._motion_mat[i, ndim + i] = dt
         self._update_mat = np.eye(ndim, 2 * ndim)
 
+        # Motion and observation uncertainty are chosen relative to the current
+        # state estimate. These weights control the amount of uncertainty in
+        # the model.
         self._std_weight_position = 1. / 20
         self._std_weight_velocity = 1. / 160
 
-        self.alpha = 25.0
-        self.beta = 0.5
-        self.gamma = 2.0
+        # PAKF Parameters
+        self.alpha = 10  # Motion cost adaptation factor (PA-P)best10
+        self.beta = 0.5#Detection confidence adaptation factor (PA-U)
+        #self.gamma = 2.0  # Additional motion consistency factor
+        self.process_noise_gain = 0.5
 
         # Adaptive thresholds
         self.high_confidence_thresh = 0.7
@@ -57,11 +63,10 @@ class MAkalmanFilter(object):
         # Base noise levels
         self.base_process_noise = 1.0
         self.base_observation_noise = 1.0
-
         # Lambda_k parameters (appearance-aware observation adaptation)
-        self.lambda_alpha = 0.4
-        self.lambda_beta = 0.8
-        self.lambda_gamma = 0.8
+        self.lambda_alpha = 0.4#best=0.4
+        self.lambda_beta = 0.8#best=0.8
+        self.lambda_gamma = 0.8#best=0.8
         self.lambda_min = 0.4
         self.lambda_max = 1.0
         self.lambda_eps = 1e-3
@@ -103,50 +108,54 @@ class MAkalmanFilter(object):
         k = np.asarray([1])
         return mean, covariance, k
 
-    def predict(self, mean, covariance, k):
-        """Run Kalman filter prediction step with adaptive process noise.
-
-        Parameters
-        ----------
-        mean : ndarray
-            The 8 dimensional mean vector of the object state at the previous
-            time step.
-        covariance : ndarray
-            The 8x8 dimensional covariance matrix of the object state at the
-            previous time step.
-        k : float or ndarray
-            Motion adaptation factor based on previous IoU cost
-
-        Returns
-        -------
-        (ndarray, ndarray)
-            Returns the mean vector and covariance matrix of the predicted
-            state with adaptive process noise.
-
+    def predict(self, mean, covariance, omega_t):
         """
-        # Ensure k is a scalar
-        if isinstance(k, np.ndarray):
-            k = k.item() if k.size == 1 else k[0]
+        Kalman prediction with adaptive process noise:
 
-        # Adaptive process noise based on motion matching cost
-        # Higher k means higher motion cost, so increase process noise
-        motion_adaptation = self.base_process_noise * (1.0 + self.gamma * k)
+            Q_t = omega_t * Q_base
+        """
 
+        if isinstance(omega_t, np.ndarray):
+            omega_t = (
+                omega_t.item()
+                if omega_t.size == 1
+                else omega_t[0]
+            )
+
+        omega_t = float(omega_t)
+
+        # Base process-noise standard deviations
         std_pos = [
-            self._std_weight_position * mean[3] * motion_adaptation,
-            self._std_weight_position * mean[3] * motion_adaptation,
-            1e-2 * motion_adaptation,
-            self._std_weight_position * mean[3] * motion_adaptation]
+            self._std_weight_position * mean[3],
+            self._std_weight_position * mean[3],
+            1e-2,
+            self._std_weight_position * mean[3]
+        ]
+
         std_vel = [
-            self._std_weight_velocity * mean[3] * motion_adaptation,
-            self._std_weight_velocity * mean[3] * motion_adaptation,
-            1e-5 * motion_adaptation,
-            self._std_weight_velocity * mean[3] * motion_adaptation]
-        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+            self._std_weight_velocity * mean[3],
+            self._std_weight_velocity * mean[3],
+            1e-5,
+            self._std_weight_velocity * mean[3]
+        ]
+
+        # Q_base
+        Q_base = np.diag(
+            np.square(np.r_[std_pos, std_vel])
+        )
+
+        # Q_t = omega_t * Q_base
+        Q_t = omega_t * Q_base
 
         mean = np.dot(mean, self._motion_mat.T)
-        covariance = np.linalg.multi_dot((
-            self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
+
+        covariance = np.linalg.multi_dot(
+            (
+                self._motion_mat,
+                covariance,
+                self._motion_mat.T
+            )
+        ) + Q_t
 
         return mean, covariance
 
@@ -341,48 +350,43 @@ class MAkalmanFilter(object):
 
         return new_mean, new_covariance, new_k, lambda_bar
 
-    def _compute_motion_adaptation(self, cost_IOU_measurement, scores):
-        """Compute motion adaptation factor based on IoU cost and detection confidence.
-
-        Parameters
-        ----------
-        cost_IOU_measurement : float
-            IoU-based matching cost (0-1, where 0 is perfect match)
-        scores : float
-            Detection confidence score (0-1)
-
-        Returns
-        -------
-        ndarray
-            Motion adaptation factor for next prediction step
+    def _compute_motion_adaptation(self, cost_IOU_measurement, scores=None):
         """
-        # Ensure inputs are scalars
+        Compute adaptive process-noise scaling factor:
+
+            omega_t = 1 + k * (1 - IoU_(t-1)^alpha)
+
+        where:
+            k     : process_noise_gain
+            alpha : IoU sensitivity parameter
+
+        Therefore:
+            omega_t >= 1
+            Q_t = omega_t * Q_base
+        """
+
+        # Ensure scalar
         if isinstance(cost_IOU_measurement, np.ndarray):
-            cost_IOU_measurement = cost_IOU_measurement.item() if cost_IOU_measurement.size == 1 else \
-            cost_IOU_measurement[0]
-        if isinstance(scores, np.ndarray):
-            scores = scores.item() if scores.size == 1 else scores[0]
+            cost_IOU_measurement = (
+                cost_IOU_measurement.item()
+                if cost_IOU_measurement.size == 1
+                else cost_IOU_measurement[0]
+            )
 
-        # Clamp inputs to valid ranges
-        cost_IOU_measurement = np.clip(cost_IOU_measurement, 0.0, 1.0)
-        scores = np.clip(scores, 0.0, 1.0)
+        # IoU cost = 1 - IoU
+        cost_IOU_measurement = float(
+            np.clip(cost_IOU_measurement, 0.0, 1.0)
+        )
 
-        # Convert IoU cost to IoU (higher IoU = better match)
+        # Convert IoU distance to IoU
         iou = 1.0 - cost_IOU_measurement
 
-        # Motion adaptation based on IoU quality and detection confidence
-        # Poor IoU or low confidence -> higher adaptation factor -> more process noise
-        iou_factor = 1.0 - iou ** self.alpha
-        confidence_factor = 1.0 - scores ** (self.beta * 10)  # Scale beta for motion adaptation
+        # omega_t = 1 + k * (1 - IoU^alpha)
+        omega_t = 1.0 + self.process_noise_gain * (
+                1.0 - iou ** self.alpha
+        )
 
-        # Combine factors: both poor IoU and low confidence increase adaptation
-        motion_adaptation = max(iou_factor, confidence_factor)
-
-        # Additional penalty for very poor matches
-        if cost_IOU_measurement > self.high_motion_cost_thresh:
-            motion_adaptation *= 1.5
-
-        return np.asarray([motion_adaptation])
+        return np.asarray([omega_t], dtype=float)
 
     def _compute_lambda(self, cost_IOU_measurement, scores, reid_similarity):
         """Compute instantaneous λ_k combining geometry, confidence and appearance."""
@@ -396,10 +400,16 @@ class MAkalmanFilter(object):
         d = float(np.clip(cost_IOU_measurement if cost_IOU_measurement is not None else 0.5,
                           self.lambda_eps, 1.0))
         c = float(np.clip(scores if scores is not None else 0.5, self.lambda_eps, 1.0))
-        if reid_similarity is None or reid_similarity < 0.5:
+        if reid_similarity is None:
+            # 没有ReID信息时采用中性值
             s = 1.0
         else:
-            s = float(np.clip(reid_similarity, self.lambda_eps, 1.0))
+            # 有ReID信息就保留真实相似度
+            s = float(np.clip(
+                reid_similarity,
+                self.lambda_eps,
+                1.0
+            ))
 
         lambda_raw = ((d ** self.lambda_alpha) / ((c * s) ** self.lambda_beta)) ** self.lambda_gamma
         return float(np.clip(lambda_raw, self.lambda_min, self.lambda_max))
