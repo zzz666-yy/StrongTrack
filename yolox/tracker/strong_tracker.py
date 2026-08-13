@@ -35,6 +35,11 @@ class STrack(BaseTrack):
         self.curr_feat = None
         self.features = deque([], maxlen=feat_history)
         self.alpha = 0.9
+        # PA Kalman Filter specific (keep original)
+        self.k = None
+        self.cost_IOU = 0.0
+        self.lambda_bar = 1.0
+
         if feat is not None:
             self.update_features(feat)
 
@@ -51,9 +56,14 @@ class STrack(BaseTrack):
         if self.smooth_feat is None:
             self.smooth_feat = feat
         else:
-
+            # 改进点：根据检测分数动态调整 alpha
+            # 原始逻辑是固定 alpha=0.9 (0.9保留旧的, 0.1更新新的)
+            # 改进后：如果分数高，我们更信任当前特征，稍微增加更新比重
             if score > 0:
-
+                # 示例逻辑：分数越高，alpha 越小 (即保留旧特征的权重变小，吸纳新特征权重变大)
+                # 设定一个基础 alpha，比如 0.9。
+                # 如果 score=1.0, update_rate = (1-0.9) * 1.0 = 0.1
+                # 如果 score=0.5, update_rate = (1-0.9) * 0.5 = 0.05
                 update_rate = (1.0 - self.alpha) * score
                 current_alpha = 1.0 - update_rate
             else:
@@ -64,10 +74,7 @@ class STrack(BaseTrack):
         self.features.append(feat)
         self.smooth_feat = self.smooth_feat / (np.linalg.norm(self.smooth_feat) + 1e-12)
 
-        # PA Kalman Filter specific (keep original)
-        self.k = None
-        self.cost_IOU = 0.0
-        self.lambda_bar = 1.0
+
 
     def _compute_reid_similarity(self, detection):
         """
@@ -77,7 +84,7 @@ class STrack(BaseTrack):
         if detection is None:
             return None
 
-
+        # 获取检测框特征
         det_feat = getattr(detection, 'curr_feat', None)
         if det_feat is None:
             det_feat = getattr(detection, 'smooth_feat', None)
@@ -85,25 +92,34 @@ class STrack(BaseTrack):
         if det_feat is None:
             return None
 
+        # 改进点：不再只对比 smooth_feat，而是对比历史特征库
+        # 这种方法对于目标转身、部分遮挡后的重识别非常有效
 
+        # 1. 与平滑特征计算相似度 (基准)
         base_feat = getattr(self, 'smooth_feat', None)
         sim_smooth = -1.0
         if base_feat is not None:
             sim_smooth = np.dot(base_feat, det_feat)
+
+        # 2. 与历史特征库 (Gallery) 计算相似度，取最大值
         sim_history = -1.0
         if len(self.features) > 0:
+            # self.features 是 deque，转换为矩阵计算效率更高
             history_feats = np.array(self.features)  # Shape: (N, Feature_Dim)
+            # 矩阵乘法计算所有余弦相似度
             sims = np.dot(history_feats, det_feat)
             sim_history = np.max(sims)
+
+        # 3. 融合策略：取两者中的最大值作为最终相似度
+        # 这样既保持了长期稳定性(smooth)，又具备了短期灵活性(history)
         cosine_sim = max(sim_smooth, sim_history)
+
+        # 后处理 (保持原逻辑)
         cosine_sim = np.clip(cosine_sim, -1.0, 1.0)
+
         similarity = 0.5 * (cosine_sim + 1.0)
 
-        # Treat very low similarity as unreliable
-        if similarity < 0.2:
-            return None
-
-        return similarity
+        return float(similarity)
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -111,6 +127,7 @@ class STrack(BaseTrack):
             mean_state[7] = 0
         self.mean, self.covariance = self.kalman_filter.predict(mean_state, self.covariance)
 
+        # Use PA Kalman Filter if available
         if isinstance(self.kalman_filter, MAkalmanFilter) and self.k is not None:
             self.mean, self.covariance = self.kalman_filter.predict(mean_state, self.covariance, self.k.copy())
         else:
@@ -122,6 +139,7 @@ class STrack(BaseTrack):
             multi_mean = np.asarray([st.mean.copy() for st in stracks])
             multi_covariance = np.asarray([st.covariance for st in stracks])
 
+            # Handle PA Kalman Filter
             if isinstance(STrack.shared_kalman, MAkalmanFilter):
                 multi_k = np.asarray([st.k if st.k is not None else np.asarray([1]) for st in stracks], dtype=object)
                 for i, st in enumerate(stracks):
@@ -233,6 +251,7 @@ class STrack(BaseTrack):
 
         reid_similarity = self._compute_reid_similarity(new_track)
 
+        # Handle PA Kalman Filter update
         if isinstance(self.kalman_filter, MAkalmanFilter):
             self.mean, self.covariance, self.k, self.lambda_bar = self.kalman_filter.update(
                 self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh),
@@ -317,8 +336,8 @@ class BYTETracker(object):
         self.buffer_size = int(frame_rate / 30.0 * args.track_buffer)
         self.max_time_lost = self.buffer_size
         self.kalman_filter = MAkalmanFilter()
-        self.occlusion_buffer_factor = float(getattr(args, "occlusion_buffer_factor", 1.5))
-        self.occlusion_iou_thresh = float(getattr(args, "occlusion_iou_thresh", 0.3))
+        self.occlusion_buffer_factor = float(getattr(args, "occlusion_buffer_factor", 1.5))#best1.5
+        self.occlusion_iou_thresh = float(getattr(args, "occlusion_iou_thresh", 0.1))#best0.1
         self.occlusion_border_ratio = float(getattr(args, "occlusion_border_ratio", 0.1))
         self.with_reid = bool(getattr(args, 'with_reid', False))
         self.proximity_thresh = float(getattr(args, 'proximity_thresh', 0.5))
@@ -495,18 +514,48 @@ class BYTETracker(object):
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists = matching.iou_distance(r_tracked_stracks, detections_second)
-        geom_dists_second = dists.copy()
-        matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
+        # BSA: Buffered IoU 仅用于第二阶段数据关联
+        dists = matching.biou_distance(
+            r_tracked_stracks,
+            detections_second,
+            buffer_ratio=0.2
+        )
+
+        # 标准 IoU distance，仅用于 MAKF
+        standard_iou_dists_second = matching.iou_distance(
+            r_tracked_stracks,
+            detections_second
+        )
+
+        # 使用 Buffered IoU 进行第二阶段匹配
+        matches, u_track, u_detection_second = matching.linear_assignment(
+            dists,
+            thresh=0.4
+        )
+
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
             det = detections_second[idet]
-            cost_iou = geom_dists_second[itracked, idet]
+
+            # 注意：
+            # MAKF 使用标准 IoU distance，
+            # 而不是 Buffered IoU distance
+            cost_iou = standard_iou_dists_second[itracked, idet]
+
             if track.state == TrackState.Tracked:
-                track.update(det, self.frame_id, cost_iou)
+                track.update(
+                    det,
+                    self.frame_id,
+                    cost_iou
+                )
                 activated_starcks.append(track)
             else:
-                track.re_activate(det, self.frame_id,cost_iou, new_id=False)
+                track.re_activate(
+                    det,
+                    self.frame_id,
+                    cost_iou,
+                    new_id=False
+                )
                 refind_stracks.append(track)
 
         for it in u_track:
