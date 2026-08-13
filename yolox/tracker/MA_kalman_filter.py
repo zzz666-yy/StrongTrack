@@ -13,7 +13,7 @@ chi2inv95 = {
     8: 15.507,
     9: 16.919}
 
-class PAkalmanFilter(object):
+class MAkalmanFilter(object):
     """
     Power-Adaptive Kalman Filter (PAKF) for tracking bounding boxes in image space.
 
