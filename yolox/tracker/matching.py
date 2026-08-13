@@ -90,6 +90,65 @@ def iou_distance(atracks, btracks):
 
     return cost_matrix
 
+def buffer_tlbrs(tlbrs, buffer_ratio=0.3):
+    """
+    Expand boxes by buffer_ratio.
+    box format: [x1, y1, x2, y2]
+    """
+    tlbrs = np.asarray(tlbrs, dtype=float).copy()
+    if tlbrs.size == 0:
+        return tlbrs
+
+    w = tlbrs[:, 2] - tlbrs[:, 0]
+    h = tlbrs[:, 3] - tlbrs[:, 1]
+
+    tlbrs[:, 0] -= buffer_ratio * w
+    tlbrs[:, 1] -= buffer_ratio * h
+    tlbrs[:, 2] += buffer_ratio * w
+    tlbrs[:, 3] += buffer_ratio * h
+
+    return tlbrs
+
+
+def bious(atlbrs, btlbrs, buffer_ratio=0.3):
+    """
+    Buffered IoU.
+    First expand track boxes and detection boxes,
+    then compute ordinary IoU.
+    """
+    biou_matrix = np.zeros((len(atlbrs), len(btlbrs)), dtype=float)
+    if biou_matrix.size == 0:
+        return biou_matrix
+
+    atlbrs_buffered = buffer_tlbrs(atlbrs, buffer_ratio)
+    btlbrs_buffered = buffer_tlbrs(btlbrs, buffer_ratio)
+
+    biou_matrix = bbox_ious(
+        np.ascontiguousarray(atlbrs_buffered, dtype=float),
+        np.ascontiguousarray(btlbrs_buffered, dtype=float)
+    )
+
+    return biou_matrix
+
+
+def biou_distance(atracks, btracks, buffer_ratio=0.3):
+    """
+    Compute cost based on BIoU.
+    cost = 1 - BIoU
+    """
+    if (len(atracks) > 0 and isinstance(atracks[0], np.ndarray)) or \
+       (len(btracks) > 0 and isinstance(btracks[0], np.ndarray)):
+        atlbrs = atracks
+        btlbrs = btracks
+    else:
+        atlbrs = [track.tlbr for track in atracks]
+        btlbrs = [track.tlbr for track in btracks]
+
+    _bious = bious(atlbrs, btlbrs, buffer_ratio=buffer_ratio)
+    cost_matrix = 1 - _bious
+    return cost_matrix
+
+
 def v_iou_distance(atracks, btracks):
     """
     Compute cost based on IoU
@@ -133,7 +192,7 @@ def gate_cost_matrix(kf, cost_matrix, tracks, detections, only_position=False):
     if cost_matrix.size == 0:
         return cost_matrix
     gating_dim = 2 if only_position else 4
-    gating_threshold = PAkalman_filter.chi2inv95[gating_dim]
+    gating_threshold = MAkalmanFilter.chi2inv95[gating_dim]
     measurements = np.asarray([det.to_xyah() for det in detections])
     for row, track in enumerate(tracks):
         gating_distance = kf.gating_distance(
@@ -146,7 +205,7 @@ def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda
     if cost_matrix.size == 0:
         return cost_matrix
     gating_dim = 2 if only_position else 4
-    gating_threshold = PAkalman_filter.chi2inv95[gating_dim]
+    gating_threshold = MAkalmanFilter.chi2inv95[gating_dim]
     measurements = np.asarray([det.to_xyah() for det in detections])
     for row, track in enumerate(tracks):
         gating_distance = kf.gating_distance(
